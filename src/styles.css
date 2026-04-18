@@ -1,0 +1,148 @@
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@500;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --mustard: #f8c62a;
+  --cream: #fff7e9;
+  --offwhite: #fffdf7;
+  --ink: #111111;
+  --cyan: #58d4f5;
+  --olive: #8aa341;
+  --coral: #ff6f61;
+  --radius-card: 18px;
+  --radius-btn: 14px;
+  --border-thick: 3px solid var(--ink);
+  --shadow-card: 4px 4px 0 var(--ink);
+  --shadow-press: 2px 2px 0 var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Nunito', sans-serif;
+  color: var(--ink);
+  background-color: var(--mustard);
+  background-image:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.22), transparent 44%),
+    radial-gradient(circle at 90% 85%, rgba(88, 212, 245, 0.2), transparent 40%);
+  background-size: cover, cover;
+  background-position: center, center;
+}
+
+h1,
+h2,
+h3,
+h4,
+.brand-font {
+  font-family: 'Baloo 2', 'Trebuchet MS', sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.paper-card {
+  background: var(--cream);
+  border: var(--border-thick);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  position: relative;
+  overflow: hidden;
+}
+
+.paper-card::before {
+  content: '';
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 22px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  transform: rotate(-10deg);
+  pointer-events: none;
+}
+
+.brutal-btn {
+  border: var(--border-thick);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-card);
+  font-weight: 800;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+.brutal-btn:hover {
+  filter: brightness(1.03);
+}
+
+.brutal-btn:active,
+.brutal-btn.pressed {
+  transform: translate(2px, 2px);
+  box-shadow: var(--shadow-press);
+}
+
+.outlined-input {
+  border: var(--border-thick);
+  border-radius: 12px;
+  background: var(--offwhite);
+  font-weight: 700;
+}
+
+.outlined-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(88, 212, 245, 0.42);
+}
+
+.sticker {
+  transform: rotate(-1.5deg);
+}
+
+.sticker:nth-child(2n) {
+  transform: rotate(1.3deg);
+}
+
+.card-pop {
+  animation: cardPop 240ms ease-out;
+}
+
+.section-enter {
+  animation: sectionEnter 280ms ease-out;
+}
+
+@keyframes cardPop {
+  from {
+    transform: translateY(6px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes sectionEnter {
+  from {
+    transform: translateY(10px);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .safe-bottom {
+    padding-bottom: 6.5rem;
+  }
+
+  .paper-card {
+    border-radius: 16px;
+  }
+}
+
+/* Dots are drawn by DotField canvas for interactivity. */

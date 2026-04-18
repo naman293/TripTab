@@ -1,0 +1,22 @@
+{
+  "name": "TripTab",
+  "short_name": "TripTab",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8C62A",
+  "theme_color": "#F8C62A",
+  "icons": [
+    {
+      "src": "/triptab-icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/triptab-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -54,7 +54,9 @@ export function useSupabaseSync(
         allUserIds.add(currentUserId);
         tripMembersData?.forEach(tm => allUserIds.add(tm.user_id));
 
-        const { data: usersData } = await db.from('users').select('*').in('id', Array.from(allUserIds));
+        const { data: usersData, error: usersError } = await db.from('users').select('*').in('id', Array.from(allUserIds));
+        if (usersError) console.error('Supabase Users Fetch Error:', usersError);
+        console.log(`Sync Debug: Found ${tripsData?.length || 0} trips and ${usersData?.length || 0} users for currentUserId: ${currentUserId}`);
 
         if (!isMounted) return;
 

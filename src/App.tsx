@@ -59,6 +59,7 @@ function App() {
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
   const [showTripPicker, setShowTripPicker] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const persist = (next: AppState) => {
     setState(next);
@@ -365,8 +366,10 @@ function App() {
           if (prev.currentUserId === dbUserId) return prev;
           return { ...prev, currentUserId: dbUserId };
         });
-      } catch (err) {
+        setSyncError(null);
+      } catch (err: any) {
         console.error('Error syncing user to Supabase:', err);
+        setSyncError(`Auth Sync Failed: ${err.message || 'Unknown error'}`);
       }
     };
 
@@ -393,6 +396,7 @@ function App() {
         <DotField mode="auth" />
         <Card className="text-center">
           <h2 className="brand-font text-2xl font-extrabold">Loading TripTab...</h2>
+          {syncError && <p className="mt-4 text-sm font-bold text-coralpop">{syncError}</p>}
         </Card>
       </main>
     );

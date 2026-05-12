@@ -390,13 +390,21 @@ function App() {
     }
   }, [currentUser, state.trips.length, state.selectedTripId]);
 
-  if (!isLoaded || (currentUser && syncLoading)) {
+  // Show loading screen if Clerk isn't ready OR if we are signed in but Supabase hasn't synced the user yet.
+  if (!isLoaded || (isSignedIn && (!currentUser || syncLoading))) {
     return (
       <main className="relative z-10 mx-auto flex min-h-screen max-w-xl items-center justify-center p-6">
         <DotField mode="auth" />
         <Card className="text-center">
           <h2 className="brand-font text-2xl font-extrabold">Loading TripTab...</h2>
-          {syncError && <p className="mt-4 text-sm font-bold text-coralpop">{syncError}</p>}
+          <p className="mt-2 text-sm opacity-70">Connecting to your secure vault...</p>
+          {syncError && (
+            <div className="mt-6 border-t-2 border-ink pt-4">
+              <p className="text-sm font-bold text-coralpop underline">Sync Error Identified:</p>
+              <p className="mt-1 text-xs font-mono">{syncError}</p>
+              <p className="mt-4 text-[10px] uppercase opacity-50">Please check your Clerk JWT Template and Supabase RLS policies.</p>
+            </div>
+          )}
         </Card>
       </main>
     );

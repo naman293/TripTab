@@ -4,15 +4,18 @@ import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { AppState, Notification } from '../../types';
 import { uid } from '../../lib/utils';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 export function CreateTripForm({
   state,
   persist,
-  userId
+  userId,
+  db
 }: {
   state: AppState;
   persist: (s: AppState) => void;
   userId: string;
+  db: SupabaseClient;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const [name, setName] = useState('');
@@ -32,19 +35,50 @@ export function CreateTripForm({
       coverDoodle: doodle,
       members: [userId]
     };
+    
+    db.from('trips').insert({
+      id: trip.id,
+      title: trip.name,
+      destination: trip.destination,
+      start_date: trip.startDate,
+      end_date: trip.endDate,
+      cover_doodle: trip.coverDoodle,
+      created_by: userId
+    }).then(() => {
+      db.from('trip_members').insert({
+        trip_id: trip.id,
+        user_id: userId,
+        role: 'owner'
+      }).then();
+    });
+
+    const notifId = uid();
+    const createdAt = new Date().toISOString();
+    
+    db.from('notifications').insert({
+      id: notifId,
+      to_user_id: userId,
+      trip_id: trip.id,
+      type: 'trip_created',
+      title: 'Trip created',
+      body: `You created “${trip.name}”.`,
+      read: false,
+      created_at: createdAt
+    }).then();
+
     persist({
       ...state,
       trips: [...state.trips, trip],
       selectedTripId: trip.id,
       notifications: [
         {
-          id: uid(),
+          id: notifId,
           toUserId: userId,
           tripId: trip.id,
           type: 'trip_created',
           title: 'Trip created',
           body: `You created “${trip.name}”.`,
-          createdAt: new Date().toISOString(),
+          createdAt,
           read: false
         } as Notification,
         ...state.notifications

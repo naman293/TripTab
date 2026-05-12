@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useClerk, useSession, useUser } from '@clerk/clerk-react';
 import { AvatarDoodle } from './components/AvatarDoodle';
 import { BottomTabs } from './components/BottomTabs';
 import { DotField } from './components/DotField';
@@ -8,7 +8,8 @@ import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { Button } from './components/ui/Button';
 import { Card } from './components/ui/Card';
 import { EmptyState } from './components/ui/EmptyState';
-import { mockState } from './data/mockData';
+import { supabase, createAuthenticatedSupabaseClient } from './lib/supabase';
+import { useSupabaseSync } from './hooks/useSupabaseSync';
 import { AddExpenseModal } from './features/expenses/AddExpenseModal';
 import { DashboardScreen } from './features/dashboard/DashboardScreen';
 import { TripScreen } from './features/trips/TripScreen';
@@ -21,59 +22,36 @@ import { AuthMode, AuthShell } from './features/auth/AuthShell';
 import { ActivityItem, AppState, Currency, DeleteProposal, Expense, Notification } from './types';
 import { byId, uid } from './lib/utils';
 
-// Bump this when state shape/defaults change to avoid stale demo data sticking around.
-const STORAGE_KEY = 'triptab-v2';
-
-const normalizeState = (raw: unknown): AppState => {
-  const base = mockState;
-  const obj = (raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}) as Record<string, unknown>;
-
-  const users = Array.isArray(obj.users) ? (obj.users as AppState['users']) : base.users;
-  const trips = Array.isArray(obj.trips) ? (obj.trips as AppState['trips']) : base.trips;
-  const expenses = Array.isArray(obj.expenses) ? (obj.expenses as AppState['expenses']) : base.expenses;
-  const settlements = Array.isArray(obj.settlements) ? (obj.settlements as AppState['settlements']) : base.settlements;
-  const activities = Array.isArray(obj.activities) ? (obj.activities as AppState['activities']) : base.activities;
-  const notifications = Array.isArray(obj.notifications)
-    ? (obj.notifications as AppState['notifications'])
-    : base.notifications;
-  const deleteProposals = Array.isArray(obj.deleteProposals)
-    ? (obj.deleteProposals as AppState['deleteProposals'])
-    : base.deleteProposals;
-
-  const currentUserId = typeof obj.currentUserId === 'string' ? (obj.currentUserId as string) : base.currentUserId;
-  const selectedTripId = typeof obj.selectedTripId === 'string' ? (obj.selectedTripId as string) : base.selectedTripId;
-
-  const tripExists = selectedTripId ? trips.some((t) => t.id === selectedTripId) : false;
-  const userExists = currentUserId ? users.some((u) => u.id === currentUserId) : false;
-
-  return {
-    users,
-    trips,
-    expenses,
-    settlements,
-    activities,
-    notifications,
-    deleteProposals,
-    currentUserId: userExists ? currentUserId : null,
-    selectedTripId: tripExists ? selectedTripId : (trips[0]?.id ?? null)
-  };
-};
-
-const loadState = (): AppState => {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return mockState;
-  try {
-    return normalizeState(JSON.parse(raw));
-  } catch {
-    return mockState;
-  }
+const initialState: AppState = {
+  users: [],
+  trips: [],
+  expenses: [],
+  settlements: [],
+  activities: [],
+  notifications: [],
+  deleteProposals: [],
+  currentUserId: null,
+  selectedTripId: null
 };
 
 function App() {
   const { isLoaded, isSignedIn, user } = useUser();
   const { signOut } = useClerk();
+  const { session } = useSession();
 
-  const [state, setState] = useState<AppState>(loadState);
+  // Authenticated Supabase client: attaches the Clerk JWT so RLS
+  // policies can identify the user via auth.jwt()->>'sub'.
+  // Falls back to the anon client before the user signs in.
+  const db = useMemo(() => {
+    if (!session) return supabase;
+    return createAuthenticatedSupabaseClient(() =>
+      session.getToken({ template: 'supabase' })
+    );
+  }, [session]);
+
+  const [state, setState] = useState<AppState>(initialState);
+  const { loading: syncLoading } = useSupabaseSync(state.currentUserId, setState, db);
+
   const [authMode, setAuthMode] = useState<AuthMode>('landing');
   const [tab, setTab] = useState<'dashboard' | 'trip' | 'members' | 'balances' | 'activity' | 'profile'>('dashboard');
   const [showAddExpense, setShowAddExpense] = useState(false);
@@ -83,20 +61,26 @@ function App() {
   const [showNotifications, setShowNotifications] = useState(false);
 
   const persist = (next: AppState) => {
-    const normalized = normalizeState(next);
-    setState(normalized);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    setState(next);
   };
 
   const addActivity = (item: Omit<ActivityItem, 'id'>, snap?: AppState) => {
+    const full = { ...item, id: uid() };
     const source = snap ?? state;
-    return { ...source, activities: [{ ...item, id: uid() }, ...source.activities] };
-  };
-
-  const addNotification = (snap: AppState, n: Omit<Notification, 'id'>) => {
-    const next: AppState = { ...snap, notifications: [{ ...n, id: uid() }, ...snap.notifications] };
+    const next = { ...source, activities: [full, ...source.activities] };
+    
+    db.from('activities').insert({
+      id: full.id,
+      trip_id: full.tripId,
+      user_id: full.actorId,
+      action: full.type,
+      metadata: { message: full.message, refId: full.refId },
+      created_at: full.date
+    }).then();
+    
     return next;
   };
+
 
   const notifyTripMembers = (
     snap: AppState,
@@ -105,8 +89,11 @@ function App() {
     payload: { type: Notification['type']; title: string; body: string; meta?: Record<string, string> }
   ) => {
     let next = snap;
+    const newNotifs: any[] = [];
+    
     for (const memberId of toUserIds) {
-      next = addNotification(next, {
+      const full = {
+        id: uid(),
         toUserId: memberId,
         tripId,
         type: payload.type,
@@ -115,14 +102,45 @@ function App() {
         createdAt: new Date().toISOString(),
         read: false,
         meta: payload.meta
+      };
+      next = { ...next, notifications: [full, ...next.notifications] };
+      newNotifs.push({
+        id: full.id,
+        to_user_id: full.toUserId,
+        trip_id: full.tripId,
+        type: full.type,
+        title: full.title,
+        body: full.body,
+        read: full.read,
+        meta: full.meta,
+        created_at: full.createdAt
       });
     }
+
+    if (newNotifs.length > 0) {
+      db.from('notifications').insert(newNotifs).then();
+    }
+    
     return next;
   };
 
   const createDeleteProposal = (snap: AppState, proposal: Omit<DeleteProposal, 'id'>) => {
     const full: DeleteProposal = { ...proposal, id: uid() };
-    return { next: { ...snap, deleteProposals: [full, ...snap.deleteProposals] }, proposal: full };
+    const next = { ...snap, deleteProposals: [full, ...snap.deleteProposals] };
+    
+    db.from('delete_proposals').insert({
+      id: full.id,
+      kind: full.kind,
+      trip_id: full.tripId,
+      target_id: full.targetId,
+      requested_by: full.requestedBy,
+      status: full.status,
+      member_ids: full.memberIds,
+      approvals: full.approvals,
+      created_at: full.createdAt
+    }).then();
+
+    return { next, proposal: full };
   };
 
   const requestDeleteExpense = (expense: Expense) => {
@@ -187,7 +205,7 @@ function App() {
         ...prev,
         notifications: prev.notifications.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      db.from('notifications').update({ read: true }).eq('id', notificationId).then();
       return next;
     });
   };
@@ -199,7 +217,11 @@ function App() {
     if (!allApproved) return snap;
 
     let next = { ...snap };
+    
+    db.from('delete_proposals').update({ status: 'executed' }).eq('id', proposalId).then();
+    
     if (proposal.kind === 'expense') {
+      db.from('expenses').delete().eq('id', proposal.targetId).then();
       next = {
         ...next,
         expenses: next.expenses.filter((e) => e.id !== proposal.targetId),
@@ -207,6 +229,7 @@ function App() {
       };
     } else {
       const tripId = proposal.tripId;
+      db.from('trips').delete().eq('id', proposal.targetId).then();
       next = {
         ...next,
         trips: next.trips.filter((t) => t.id !== tripId),
@@ -248,8 +271,9 @@ function App() {
         ...prev,
         deleteProposals: prev.deleteProposals.map((p) => (p.id === proposalId ? { ...p, approvals } : p))
       };
+      
+      db.from('delete_proposals').update({ approvals }).eq('id', proposalId).then();
       next = executeProposalIfApproved(next, proposalId);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -267,6 +291,8 @@ function App() {
         )
       };
 
+      db.from('delete_proposals').update({ approvals, status: 'rejected' }).eq('id', proposalId).then();
+
       next = notifyTripMembers(next, proposal.tripId, proposal.memberIds, {
         type: 'delete_result',
         title: 'Delete canceled',
@@ -274,7 +300,6 @@ function App() {
         meta: { proposalId }
       });
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -296,9 +321,7 @@ function App() {
     if (!isSignedIn || !user) {
       setState((prev) => {
         if (prev.currentUserId === null) return prev;
-        const next = { ...prev, currentUserId: null };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        return next;
+        return { ...prev, currentUserId: null };
       });
       return;
     }
@@ -306,27 +329,48 @@ function App() {
     const email = user.primaryEmailAddress?.emailAddress || user.emailAddresses[0]?.emailAddress || `${user.id}@local.dev`;
     const username = user.username || email.split('@')[0] || `traveler_${user.id.slice(-6)}`;
     const name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || username;
-    setState((prev) => {
-      const existing = prev.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-      if (existing) {
-        if (prev.currentUserId === existing.id) return prev;
-        const next = { ...prev, currentUserId: existing.id };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        return next;
-      }
 
-      const newUser = {
-        id: uid(),
-        name,
-        username,
-        email,
-        avatarSeed: Math.floor(Math.random() * 10),
-        preferredCurrency: 'USD' as Currency
-      };
-      const next = { ...prev, users: [...prev.users, newUser], currentUserId: newUser.id };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    const syncUser = async () => {
+      try {
+        const { data: existingUser, error: fetchError } = await db
+          .from('users')
+          .select('id')
+          .eq('clerk_id', user.id)
+          .single();
+
+        let dbUserId = existingUser?.id;
+
+        if (fetchError && fetchError.code === 'PGRST116') {
+          // not found, insert
+          const { data: newUser, error: insertError } = await db
+            .from('users')
+            .insert({
+              clerk_id: user.id,
+              email: email,
+              full_name: name,
+              avatar_url: user.imageUrl,
+              username: username,
+              preferred_currency: 'USD'
+            })
+            .select('id')
+            .single();
+
+          if (insertError) throw insertError;
+          dbUserId = newUser.id;
+        } else if (fetchError) {
+          throw fetchError;
+        }
+
+        setState((prev) => {
+          if (prev.currentUserId === dbUserId) return prev;
+          return { ...prev, currentUserId: dbUserId };
+        });
+      } catch (err) {
+        console.error('Error syncing user to Supabase:', err);
+      }
+    };
+
+    syncUser();
   }, [isLoaded, isSignedIn, user]);
 
   const currentUser = state.currentUserId ? byId(state.users, state.currentUserId) ?? null : null;
@@ -343,7 +387,7 @@ function App() {
     }
   }, [currentUser, state.trips.length, state.selectedTripId]);
 
-  if (!isLoaded) {
+  if (!isLoaded || (currentUser && syncLoading)) {
     return (
       <main className="relative z-10 mx-auto flex min-h-screen max-w-xl items-center justify-center p-6">
         <DotField mode="auth" />
@@ -420,7 +464,7 @@ function App() {
         {!selectedTrip ? (
           <Card>
             <EmptyState title="No Trip Yet" body="Create your first crew trip to start splitting and planning budgets." />
-            <CreateTripForm state={state} persist={persist} userId={currentUser.id} />
+            <CreateTripForm state={state} persist={persist} userId={currentUser.id} db={db} />
           </Card>
         ) : (
           <div className="section-enter">
@@ -447,6 +491,7 @@ function App() {
                 onRequestDeleteTrip={() => requestDeleteTrip()}
                 persist={persist}
                 userId={currentUser.id}
+                db={db}
               />
             )}
             {tab === 'members' && (
@@ -466,6 +511,7 @@ function App() {
                 currentUserId={currentUser.id}
                 persist={persist}
                 addActivity={addActivity}
+                db={db}
               />
             )}
             {tab === 'activity' && <ActivityScreen state={state} tripId={selectedTrip.id} />}
@@ -528,8 +574,46 @@ function App() {
               body: `${currentUser.name.split(' ')[0]} added “${expense.description}”.`,
               meta: { expenseId: expense.id }
             });
+            
+            if (isEdit) {
+              db.from('expenses').update({
+                amount: expense.amount,
+                title: expense.description,
+                category: expense.category,
+                notes: expense.notes,
+                split_type: expense.splitType
+              }).eq('id', expense.id).then(() => {
+                db.from('expense_splits').delete().eq('expense_id', expense.id).then(() => {
+                  db.from('expense_splits').insert(expense.splitDetails.map(sd => ({
+                    expense_id: expense.id,
+                    user_id: sd.userId,
+                    amount: sd.share
+                  }))).then();
+                });
+              });
+            } else {
+              db.from('expenses').insert({
+                id: expense.id,
+                trip_id: expense.tripId,
+                paid_by: expense.payerId,
+                amount: expense.amount,
+                title: expense.description,
+                category: expense.category,
+                created_at: expense.date,
+                notes: expense.notes,
+                split_type: expense.splitType
+              }).then(() => {
+                db.from('expense_splits').insert(expense.splitDetails.map(sd => ({
+                  expense_id: expense.id,
+                  user_id: sd.userId,
+                  amount: sd.share
+                }))).then();
+              });
+            }
+
             persist(next);
             setEditingExpense(null);
+            setShowAddExpense(false);
           }}
           initialExpense={editingExpense}
         />

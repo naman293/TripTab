@@ -7,6 +7,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Input } from '../../components/ui/Input';
 import { ActivityItem, AppState, Currency } from '../../types';
 import { byId, calculateBalances, formatCurrency, getUser, simplifySettlements, uid } from '../../lib/utils';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 export function BalancesScreen({
   state,
@@ -14,7 +15,8 @@ export function BalancesScreen({
   currency,
   currentUserId,
   persist,
-  addActivity
+  addActivity,
+  db
 }: {
   state: AppState;
   tripId: string;
@@ -22,6 +24,7 @@ export function BalancesScreen({
   currentUserId: string;
   persist: (s: AppState) => void;
   addActivity: (item: Omit<ActivityItem, 'id'>, snap?: AppState) => AppState;
+  db: SupabaseClient;
 }) {
   const trip = byId(state.trips, tripId)!;
   const balances = calculateBalances(tripId, trip.members, state.expenses, state.settlements);
@@ -59,6 +62,17 @@ export function BalancesScreen({
       next
     );
     persist(next);
+    
+    db.from('settlements').insert({
+      id: settlement.id,
+      trip_id: settlement.tripId,
+      from_user_id: settlement.fromUserId,
+      to_user_id: settlement.toUserId,
+      amount: settlement.amount,
+      date: settlement.date,
+      note: settlement.note
+    }).then();
+
     setAmount(0);
     setNote('');
   };

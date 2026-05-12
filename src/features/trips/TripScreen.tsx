@@ -5,6 +5,7 @@ import { byId, formatCurrency } from '../../lib/utils';
 import { AppState, Currency } from '../../types';
 import { StatCard } from '../common/StatCard';
 import { CreateTripForm } from './CreateTripForm';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 export function TripScreen({
   state,
@@ -13,7 +14,8 @@ export function TripScreen({
   onAddExpense,
   onRequestDeleteTrip,
   persist,
-  userId
+  userId,
+  db
 }: {
   state: AppState;
   tripId: string;
@@ -22,6 +24,7 @@ export function TripScreen({
   onRequestDeleteTrip: () => void;
   persist: (s: AppState) => void;
   userId: string;
+  db: SupabaseClient;
 }) {
   const trip = byId(state.trips, tripId)!;
   const tripExpenses = state.expenses.filter((e) => e.tripId === tripId);
@@ -52,7 +55,7 @@ export function TripScreen({
         </Button>
       </Card>
 
-      <CreateTripForm state={state} persist={persist} userId={userId} />
+      <CreateTripForm state={state} persist={persist} userId={userId} db={db} />
     </section>
   );
 }
